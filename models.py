@@ -5,9 +5,6 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 import copy
 
-# =====================
-#  MODELS ORIGINAIS
-# =====================
 
 @dataclass
 class Fornecedor:
@@ -42,6 +39,18 @@ class ComponenteKit:
     produto: 'Produto' # Referência ao objeto Produto do componente
     quantidade: int # Quantidade deste componente necessária para montar UM kit
 
+# ===================================
+# PADRÃO COMPORTAMENTAL 1: OBSERVER
+# ===================================
+
+class observador_estoque(ABC):
+    """
+    Vixe ! Acabou os produtos do estoque. Vamos notificar ao gerente sobre esse problema
+
+    """
+    @abstractmethod
+    def alertar_estoque_zerado(self, produto: 'Produto', estoque_atual : int):
+        pass
 
 @dataclass
 class Produto:
@@ -60,6 +69,25 @@ class Produto:
     estoque_por_local: Dict[str, int] = field(default_factory=lambda: defaultdict(int))
     # Para kits, armazena a lista de seus componentes
     componentes: List[ComponenteKit] = field(default_factory=list)
+    # Lista de observadores
+    _observadores_estoque: List[observador_estoque] = []
+
+    def adicionar_observador(self, observador: observador_estoque): # <-- Mostrar essa parte
+        """ Novo Observador"""
+        if observador not in self._observadores_estoque:
+            self._observadores_estoque.append(observador)
+    
+    def remover_observador(self, observador: observador_estoque): # <-- Mostrar essa parte
+        """Remove um observador"""
+        if observador in self._observadores_estoque:
+            self._observadores_estoque.remove(observador)
+    
+    def _notificar_estoque_zerado(self): # <-- Mostrar essa parte
+        """Notifica todos os observadores sobre o estoque zerado"""
+        estoque_total = self.get_estoque_total()
+        if estoque_total <= 0:
+            for observador in self._observadores_estoque:
+                observador.alertar_estoque_zerado(self, estoque_total)
 
     def recalcular_preco_compra(self):
         """Recalcula o preço de compra de um kit."""
@@ -86,6 +114,13 @@ class Produto:
         else:
             return f"{self.id} - {self.nome} (Estoque Total: {estoque_total})"
 
+class AlertaEstoqueBaixo(observador_estoque):
+
+    def alertar_estoque_zerado(self, produto: Produto, estoque_atual: int):
+
+        print(f"⚠️ Alerta: '{produto.nome}' está zerado no estoque!")
+        print(f"  Estoque atual: {estoque_atual} unidades")
+        print(f"  Ponto de ressuprimento: {produto.ponto_ressuprimento}")
 
 @dataclass
 class ItemOrdemCompra:
@@ -175,6 +210,9 @@ class Transacao:
     valor: float
     data: datetime = field(default_factory=datetime.now)
 
+# ==================================================
+# PADRÃO COMPORTAMENTAL 2: CHAIN OF RESPONSIBILITY
+# ==================================================
 
 @dataclass
 class Devolucao:
@@ -199,7 +237,74 @@ class Devolucao:
         return (f"Devolução #{self.id} | {data_formatada} | "
                 f"Venda Orig.: #{self.venda_original.id} | Cliente: {self.cliente_nome} | "
                 f"Status: {self.status}")
+    
+class Processador_de_devolucao(ABC): # <-- Mostrar essa parte
 
+    def __init__(self):
+        self._proximo: Optional['Processador_de_devolucao'] = None
+
+    def set_proximo(self, proximo: 'Processador_de_devolucao') -> 'Processador_de_devolucao':
+        self._proximo = proximo
+        return proximo  
+    
+    @abstractmethod
+    def processar(self, devolucao: Devolucao) -> bool:
+        """ Ture aprovado, False rejeitado"""
+        pass  
+    def _passar_adiante(self, devolucao: Devolucao) -> bool:
+        """Passa a solicitação para o próximo na cadeia"""
+        if self._proximo:
+            return self._proximo.processar(devolucao)
+        else:
+            print(" Devolução negada\n")
+            return False
+
+class atendente(Processador_de_devolucao): # <-- Mostrar essa parte
+
+    LIMITE_ATENDENTE = 1000.00
+
+    def processar(self, devolucao: Devolucao) -> bool:
+        if devolucao.valor_total_devolvido <= self.LIMITE_ATENDENTE:
+            print(f" Devolução aprovada pelo Atendente (Valor: R$ {devolucao.valor_total_devolvido:.2f})\n")
+            devolucao.status = "aprovada"
+            return True
+        else:
+            print(f" Atendente não pode aprovar (Valor: R$ {devolucao.valor_total_devolvido:.2f}). Encaminhando para o Supervisor...\n")
+            return self._passar_adiante(devolucao)
+
+class Gerente(Processador_de_devolucao): # <-- Mostrar essa parte
+
+    LIMITE_GERENTE = 10000.00
+
+    def processar(self, devolucao: Devolucao) -> bool:
+        if devolucao.valor_total_devolvido <= self.LIMITE_GERENTE:
+            print(f" Devolução aprovada pelo Gerente (Valor: R$ {devolucao.valor_total_devolvido:.2f})\n")
+            devolucao.status = "aprovada"
+            return True
+        else:
+            print(f" Gerente não pode aprovar (Valor: R$ {devolucao.valor_total_devolvido:.2f}). Encaminhando para o Diretor...\n")
+            return self._passar_adiante(devolucao)
+
+class Diretor(Processador_de_devolucao): # <-- Mostrar essa parte
+
+    def processar(self, devolucao: Devolucao) -> bool:
+        print(f" Devolução aprovada pelo Diretor (Valor: R$ {devolucao.valor_total_devolvido:.2f})\n")
+        devolucao.status = "aprovada"
+        return True
+
+class Sistema_de_aprovação_de_devolucao: # <-- Mostrar essa parte
+    
+    def __init__(self):
+        self.atendente = atendente()
+        self.gerente = Gerente()
+        self.diretor = Diretor()
+        
+        # Configura a cadeia
+        self.atendente.set_proximo(self.gerente).set_proximo(self.diretor)
+    
+    def processar_devolucao(self, devolucao: Devolucao) -> bool:
+        """Inicia o processamento da devolução pela cadeia"""
+        return self.atendente.processar(devolucao)
 
 @dataclass
 class HistoricoMovimento:
@@ -208,6 +313,7 @@ class HistoricoMovimento:
     quantidade: int
     localizacao: Localizacao
     data: datetime = field(default_factory=datetime.now)
+
 
 
 # =====================
