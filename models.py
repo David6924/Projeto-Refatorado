@@ -4,7 +4,124 @@ from datetime import datetime
 from abc import ABC, abstractmethod
 from collections import defaultdict
 import copy
+from typing import Dict, Any
+import json
+import csv
 
+from io import StringIO
+
+# =============================================
+# PADRÃO ESTRUTURAL 1: ADAPTER
+# =============================================
+
+class FormatoRelatorio(ABC):
+    """Interface para diferentes formatos de relatório"""
+    
+    @abstractmethod
+    def formatar(self, dados: Dict[str, Any]) -> str:
+        pass
+
+
+class RelatorioTexto(FormatoRelatorio):
+    """Formato texto simples (formato original)"""
+    
+    def formatar(self, dados: Dict[str, Any]) -> str:
+        return dados.get('conteudo', '')
+
+
+class RelatorioJSON(FormatoRelatorio):
+    """Formato JSON"""
+    
+    def formatar(self, dados: Dict[str, Any]) -> str:
+        return json.dumps(dados, indent=2, ensure_ascii=False)
+
+
+class RelatorioCSV(FormatoRelatorio):
+    """Formato CSV"""
+    
+    def formatar(self, dados: Dict[str, Any]) -> str:
+        if 'items' not in dados:
+            return dados.get('conteudo', '')
+        
+        output = StringIO()
+        if dados['items']:
+            writer = csv.DictWriter(output, fieldnames=dados['items'][0].keys())
+            writer.writeheader()
+            writer.writerows(dados['items'])
+        
+        return output.getvalue()
+
+
+class AdaptadorRelatorio:
+    """
+    Adapter que permite gerar relatórios em diferentes formatos.
+
+    """
+    
+    def __init__(self, formato: FormatoRelatorio):
+        self._formato = formato
+    
+    def gerar_relatorio(self, dados: Dict[str, Any]) -> str:
+        """Gera o relatório no formato especificado"""
+        return self._formato.formatar(dados)
+    
+    def set_formato(self, formato: FormatoRelatorio):
+        """Permite trocar o formato """
+        self._formato = formato
+
+# =============================================
+# PADRÃO ESTRUTURAL 2: BRIDGE
+# =============================================
+
+class RelatorioAbstrato(ABC):
+    """
+    Abstração para relatórios, que usa diferentes formatos de saída.
+
+    """
+    def __init__(self, formato: FormatoRelatorio):
+        self._formato = formato
+
+    @abstractmethod
+    def gerar(self, dados: Dict[str, Any]) -> str:
+        pass
+
+
+class RelatorioEstoque(RelatorioAbstrato):
+    def gerar(self, dados: Dict[str, Any]) -> str:
+        dados['titulo'] = "Relatório de Estoque"
+        return self._formato.formatar(dados)
+
+
+class RelatorioVendas(RelatorioAbstrato):
+    def gerar(self, dados: Dict[str, Any]) -> str:
+        dados['titulo'] = "Relatório de Vendas"
+        return self._formato.formatar(dados)
+
+# =============================================
+# PADRÃO ESTRUTURAL 3: DECORATOR
+# =============================================
+
+class RelatorioDecorator(FormatoRelatorio):
+    def __init__(self, relatorio: FormatoRelatorio):
+        self._relatorio = relatorio
+
+    def formatar(self, dados: Dict[str, Any]) -> str:
+        return self._relatorio.formatar(dados)
+
+
+class RelatorioComCabecalho(RelatorioDecorator):
+   
+    def formatar(self, dados: Dict[str, Any]) -> str:
+        conteudo_original = self._relatorio.formatar(dados)
+        cabecalho = f"=== {dados.get('titulo', 'Relatório')} ===\nGerado em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n\n"
+        return cabecalho + conteudo_original
+
+
+class RelatorioComRodape(RelatorioDecorator):
+    def formatar(self, dados: Dict[str, Any]) -> str:
+        conteudo_original = self._relatorio.formatar(dados)
+        rodape = f"\n\n--------------------"
+        return conteudo_original + rodape
 
 @dataclass
 class Fornecedor:
@@ -315,6 +432,48 @@ class HistoricoMovimento:
     data: datetime = field(default_factory=datetime.now)
 
 
+# =============================================
+# PADRÃO COMPORTAMENTAL 3: STRATEGY
+# =============================================
+
+class EstrategiaDesconto(ABC):
+    """Estratégias de desconto"""
+    @abstractmethod
+    def calcular_desconto(self, venda: 'Venda') -> float:
+        pass
+
+
+class SemDesconto(EstrategiaDesconto):
+    def calcular_desconto(self, venda: 'Venda') -> float:
+        return 0.0
+
+
+class DescontoPorValor(EstrategiaDesconto):
+    """Aplica desconto se o valor total da venda for alto"""
+    def calcular_desconto(self, venda: 'Venda') -> float:
+        if venda.valor_total > 1000:
+            return venda.valor_total * 0.1  # 10%
+        return 0.0
+
+class DescontoPorQuantidade(EstrategiaDesconto):
+    """Aplica desconto se a quantidade de itens for alta"""
+    def calcular_desconto(self, venda: 'Venda') -> float:
+        total_itens = sum(item.quantidade for item in venda.itens)
+        if total_itens >= 10:
+            return venda.valor_total * 0.05  # 5%
+        return 0.0
+
+class CalculadoraDescontos:
+    """Contexto que usa a estratégia de desconto"""
+    def __init__(self, estrategia: EstrategiaDesconto):
+        self._estrategia = estrategia
+
+    def set_estrategia(self, nova_estrategia: EstrategiaDesconto):
+        """Permite mudar a estratégia dinamicamente"""
+        self._estrategia = nova_estrategia
+
+    def calcular(self, venda: 'Venda') -> float:
+        return self._estrategia.calcular_desconto(venda)
 
 # =====================
 # PADRÃO 1: SINGLETON
@@ -767,5 +926,4 @@ class OrdemCompraPrototype:
         Sempre com status 'pendente' e data atual.
         """
         return OrdemCompraPrototype.clonar(ordem, status='pendente')
-
-
+    
