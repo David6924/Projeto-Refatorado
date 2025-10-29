@@ -41,13 +41,25 @@ Implementada para aprovar devoluções com base em seu valor.
 Classes: atendente, Gerente, Diretor — cada uma tem um limite de aprovação.
 O processo flui até que alguém na cadeia aprove a devolução.
 
-### 🧱 3. Singleton (Criacional)
+### 🧠 3. Strategy (Comportamental)
+
+Aplicação no código:
+
+Implementa diferentes estratégias de cálculo de descontos em vendas.
+
+**Estratégias:**
+
+* Sem desconto
+* Desconto por valor (10% para compras acima de R$1000)
+* Descont por quantidade (5% para mais de 9 itens).
+
+### 🧱 4. Singleton (Criacional)
 
 Aplicação no código:
 
 Classe GeradorID gera IDs únicos para todos os tipos de entidades (produto, venda, ordem de compra, etc).
 
-### 🏭 4. Factory Method (Criacional)
+### 🏭 5. Factory Method (Criacional)
 
 Aplicação no código:
 
@@ -56,19 +68,36 @@ Subclasses:
 ProdutoIndividualFactory: cria produtos unitários;
 ProdutoKitFactory: cria kits compostos por outros produtos.
 
-### 🧰 5. Builder (Criacional)
+### 🧰 6. Builder (Criacional)
 
 Aplicação no código:
 
 VendaBuilder: constrói objetos Venda de forma fluente e validada.
 OrdemCompraBuilder: constrói objetos OrdemCompra com segurança e legibilidade.
 
-### 🧬 6. Prototype (Criacional)
+### 🧬 7. Prototype (Criacional)
 
 Aplicação no código:
 
 ProdutoPrototype: clona produtos, inclusive criando variações (ex: “Camisa Azul” → “Camisa Vermelha”).
 OrdemCompraPrototype: clona ordens de compra para gerar ordens recorrentes.
 
+### 🎨 8. Decorator (Estrutural)
 
+Aplicação no código:
+
+Adiciona funcionalidades extras a relatórios sem modificar suas classes originais.
+
+### 🔌 9. Adapter (Estrutural)
+
+Aplicação no código:
+Permite adaptar diferentes formatos de relatório (ex: JSON, CSV, TXT) para uma interface comum (FormatoRelatorio).
+A classe AdaptadorRelatorio converte a chamada genérica em comandos específicos.
+
+### 🌉 10. Bridge (Estrutural)
+
+Aplicação no código:
+
+Separa a abstração da implementação nos relatórios.
+A classe Relatorio atua como controle, enquanto o formato (FormatoRelatorio) é a implementação.
 
