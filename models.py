@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict
 from datetime import datetime
+from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
 from collections import defaultdict
 import copy
@@ -26,30 +27,38 @@ class RelatorioTexto(FormatoRelatorio):
     """Formato texto simples (formato original)"""
     
     def formatar(self, dados: Dict[str, Any]) -> str:
-        return dados.get('conteudo', '')
+        try:
+            return dados.get('conteudo', '')
+        except Exception as e:
+            return f"Erro ao formatar relatório: {e}"
 
 
 class RelatorioJSON(FormatoRelatorio):
     """Formato JSON"""
     
     def formatar(self, dados: Dict[str, Any]) -> str:
-        return json.dumps(dados, indent=2, ensure_ascii=False)
-
+        try:
+            return json.dumps(dados, indent=2, ensure_ascii=False)
+        except Exception as e:
+            return f"Erro ao formatar relatório: {e}"
 
 class RelatorioCSV(FormatoRelatorio):
     """Formato CSV"""
     
     def formatar(self, dados: Dict[str, Any]) -> str:
-        if 'items' not in dados:
-            return dados.get('conteudo', '')
+        try:
+            if 'items' not in dados:
+                return dados.get('conteudo', '')
         
-        output = StringIO()
-        if dados['items']:
-            writer = csv.DictWriter(output, fieldnames=dados['items'][0].keys())
-            writer.writeheader()
-            writer.writerows(dados['items'])
+            output = StringIO()
+            if dados['items']:
+                writer = csv.DictWriter(output, fieldnames=dados['items'][0].keys())
+                writer.writeheader()
+                writer.writerows(dados['items'])
         
-        return output.getvalue()
+            return output.getvalue()
+        except Exception as e:
+            return f"Erro ao formatar relatório: {e}"
 
 
 class AdaptadorRelatorio:
@@ -63,12 +72,17 @@ class AdaptadorRelatorio:
     
     def gerar_relatorio(self, dados: Dict[str, Any]) -> str:
         """Gera o relatório no formato especificado"""
-        return self._formato.formatar(dados)
+        try:
+            return self._formato.formatar(dados)
+        except Exception as e:
+            return f"Erro ao gerar relatório: {e}"
     
     def set_formato(self, formato: FormatoRelatorio):
         """Permite trocar o formato """
-        self._formato = formato
-
+        try:
+            self._formato = formato
+        except Exception as e:
+            print(f"Erro ao definir formato: {e}")
 # =============================================
 # PADRÃO ESTRUTURAL 2: BRIDGE
 # =============================================
@@ -88,15 +102,19 @@ class RelatorioAbstrato(ABC):
 
 class RelatorioEstoque(RelatorioAbstrato):
     def gerar(self, dados: Dict[str, Any]) -> str:
-        dados['titulo'] = "Relatório de Estoque"
-        return self._formato.formatar(dados)
-
+        try:
+            dados['titulo'] = "Relatório de Estoque"
+            return self._formato.formatar(dados)
+        except Exception as e:
+            return f"Erro ao gerar relatório de estoque: {e}"
 
 class RelatorioVendas(RelatorioAbstrato):
     def gerar(self, dados: Dict[str, Any]) -> str:
-        dados['titulo'] = "Relatório de Vendas"
-        return self._formato.formatar(dados)
-
+        try:
+            dados['titulo'] = "Relatório de Vendas"
+            return self._formato.formatar(dados)
+        except Exception as e:
+            return f"Erro ao gerar relatório de vendas: {e}"
 # =============================================
 # PADRÃO ESTRUTURAL 3: DECORATOR
 # =============================================
@@ -106,22 +124,31 @@ class RelatorioDecorator(FormatoRelatorio):
         self._relatorio = relatorio
 
     def formatar(self, dados: Dict[str, Any]) -> str:
-        return self._relatorio.formatar(dados)
+        try:
+            return self._relatorio.formatar(dados)
+        except Exception as e:
+            return f"Erro ao formatar relatório: {e}"
 
 
 class RelatorioComCabecalho(RelatorioDecorator):
    
     def formatar(self, dados: Dict[str, Any]) -> str:
-        conteudo_original = self._relatorio.formatar(dados)
-        cabecalho = f"=== {dados.get('titulo', 'Relatório')} ===\nGerado em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n\n"
-        return cabecalho + conteudo_original
+        try:
+            conteudo_original = self._relatorio.formatar(dados)
+            cabecalho = f"=== {dados.get('titulo', 'Relatório')} ===\nGerado em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n\n"
+            return cabecalho + conteudo_original
+        except Exception as e: 
+            return f"Erro ao formatar relatório com cabeçalho: {e}"
 
 
 class RelatorioComRodape(RelatorioDecorator):
     def formatar(self, dados: Dict[str, Any]) -> str:
-        conteudo_original = self._relatorio.formatar(dados)
-        rodape = f"\n\n--------------------"
-        return conteudo_original + rodape
+        try:
+            conteudo_original = self._relatorio.formatar(dados)
+            rodape = f"\n\n--------------------"
+            return conteudo_original + rodape
+        except Exception as e:
+            return f"Erro ao formatar relatório com rodapé: {e}"
 
 @dataclass
 class Fornecedor:
@@ -135,7 +162,10 @@ class Fornecedor:
 
     def __str__(self):
         """isso vai ser usado para exibir o fornecedor em uma lista"""
-        return f"{self.id} - {self.nome} ({self.empresa})"
+        try:
+            return f"{self.id} - {self.nome} ({self.empresa})"
+        except Exception as e:
+            return f"Erro ao exibir fornecedor: {e}"
 
 
 @dataclass
@@ -147,7 +177,10 @@ class Localizacao:
 
     def __str__(self):
          #aquela mesma parada lá, de exibir a localização em uma lista
-        return f"{self.id} - {self.nome}"
+        try:
+            return f"{self.id} - {self.nome}"
+        except Exception as e:
+            return f"Erro ao exibir localização: {e}"
 
 
 @dataclass
@@ -187,29 +220,42 @@ class Produto:
     # Para kits, armazena a lista de seus componentes
     componentes: List[ComponenteKit] = field(default_factory=list)
     # Lista de observadores
-    _observadores_estoque: List[observador_estoque] = []
+    _observadores_estoque: List[observador_estoque] = field(default_factory=list)
 
     def adicionar_observador(self, observador: observador_estoque): # <-- Mostrar essa parte
         """ Novo Observador"""
-        if observador not in self._observadores_estoque:
-            self._observadores_estoque.append(observador)
+        try:
+            if observador not in self._observadores_estoque:
+                self._observadores_estoque.append(observador)
+        except Exception as e:
+            print(f"Erro ao adicionar observador: {e}")
     
     def remover_observador(self, observador: observador_estoque): # <-- Mostrar essa parte
         """Remove um observador"""
-        if observador in self._observadores_estoque:
-            self._observadores_estoque.remove(observador)
+        try:
+            if observador in self._observadores_estoque:
+                self._observadores_estoque.remove(observador)
+        except Exception as e:
+            print(f"Erro ao remover observador: {e}")
     
     def _notificar_estoque_zerado(self): # <-- Mostrar essa parte
         """Notifica todos os observadores sobre o estoque zerado"""
         estoque_total = self.get_estoque_total()
-        if estoque_total <= 0:
-            for observador in self._observadores_estoque:
-                observador.alertar_estoque_zerado(self, estoque_total)
+        try:
+        
+            if estoque_total <= 0:
+                for observador in self._observadores_estoque:
+                    observador.alertar_estoque_zerado(self, estoque_total)
+        except Exception as e:
+            print(f"Erro ao notificar observadores: {e}")
 
     def recalcular_preco_compra(self):
         """Recalcula o preço de compra de um kit."""
-        if self.tipoProduto == 'kit':
-            self.preco_compra = sum(c.produto.preco_compra * c.quantidade for c in self.componentes)
+        try:
+            if self.tipoProduto == 'kit':
+                self.preco_compra = sum(c.produto.preco_compra * c.quantidade for c in self.componentes)
+        except Exception as e:
+            print(f"Erro ao recalcular preço de compra: {e}")
 
     def get_estoque_total(self) -> int:
         """Calcula o estoque total."""
@@ -250,8 +296,11 @@ class ItemOrdemCompra:
     @property
     def subtotal(self) -> float:
         """calculo do valor subtotal do item da ordem de compra"""
-        return self.quantidade * self.preco_unitario
-
+        try:
+            return self.quantidade * self.preco_unitario
+        except Exception as e:  
+            print(f"Erro ao calcular subtotal do item da ordem de compra: {e}")
+            return 0.0  
 
 @dataclass
 class OrdemCompra:
@@ -264,16 +313,23 @@ class OrdemCompra:
 
     @property
     def valor_total(self) -> float:
-        return sum(item.subtotal for item in self.itens)
+        try:
+            return sum(item.subtotal for item in self.itens)
+        except Exception as e:
+            print(f"Erro ao calcular valor total da ordem de compra: {e}")
+            return 0.0
 
     def __str__(self):
         """Representação em string para listas e seleções."""
         # Usando ,.2f para formatar o número com separador de milhar e duas casas decimais
-        valor_formatado = f"R$ {self.valor_total:,.2f}"
-        data_formatada = self.data_criacao.strftime('%d/%m/%Y')
-        return (f"OC #{self.id} | {data_formatada} | "
-                f"Fornecedor: {self.fornecedor.empresa} | "
-                f"{valor_formatado} | Status: {self.status}")
+        try:
+            valor_formatado = f"R$ {self.valor_total:,.2f}"
+            data_formatada = self.data_criacao.strftime('%d/%m/%Y')
+            return (f"OC #{self.id} | {data_formatada} | "
+                    f"Fornecedor: {self.fornecedor.empresa} | "
+                    f"{valor_formatado} | Status: {self.status}")
+        except Exception as e:
+            return f"Erro ao exibir ordem de compra: {e}"
 
 
 @dataclass
@@ -284,7 +340,11 @@ class ItemVenda:
 
     @property
     def subtotal(self) -> float:
-        return self.quantidade * self.preco_venda_unitario
+        try:
+            return self.quantidade * self.preco_venda_unitario
+        except Exception as e:
+            print(f"Erro ao calcular subtotal do item de venda: {e}")
+            return 0.0
 
 
 @dataclass
@@ -296,13 +356,19 @@ class Venda:
 
     @property
     def valor_total(self) -> float:
-        return sum(item.subtotal for item in self.itens)
+        try:
+            return sum(item.subtotal for item in self.itens)
+        except Exception as e:
+            print(f"Erro ao calcular valor total da venda: {e}")
+            return 0.0
 
     def __str__(self):
-        valor_formatado = f"R$ {self.valor_total:,.2f}"
-        data_formatada = self.data.strftime('%d/%m/%Y')
-        return f"Venda #{self.id} | Data: {data_formatada} | Cliente: {self.cliente} | Valor: {valor_formatado}"
-
+        try:
+            valor_formatado = f"R$ {self.valor_total:,.2f}"
+            data_formatada = self.data.strftime('%d/%m/%Y')
+            return f"Venda #{self.id} | Data: {data_formatada} | Cliente: {self.cliente} | Valor: {valor_formatado}"
+        except Exception as e:
+            return f"Erro ao exibir venda: {e}"
 
 @dataclass
 class ItemDevolucao:
@@ -315,7 +381,11 @@ class ItemDevolucao:
     @property
     def subtotal(self) -> float:
         """vai caclcular o valor do item devolvido (que é baseado no preço de venda da compra original)"""
-        return self.quantidade * self.produto.preco_venda
+        try:
+            return self.quantidade * self.produto.preco_venda
+        except Exception as e:
+            print(f"Erro ao calcular subtotal do item de devolução: {e}")
+            return 0.0
 
 
 @dataclass
@@ -346,7 +416,11 @@ class Devolucao:
 
     @property
     def valor_total_devolvido(self) -> float:
-        return sum(item.subtotal for item in self.itens)
+        try:
+            return sum(item.subtotal for item in self.itens)
+        except Exception as e:
+            print(f"Erro ao calcular valor total da devolução: {e}")
+            return 0.0
 
     def __str__(self):
         valor_formatado = f"R$ {self.valor_total_devolvido:,.2f}"
@@ -381,33 +455,45 @@ class atendente(Processador_de_devolucao): # <-- Mostrar essa parte
     LIMITE_ATENDENTE = 1000.00
 
     def processar(self, devolucao: Devolucao) -> bool:
-        if devolucao.valor_total_devolvido <= self.LIMITE_ATENDENTE:
-            print(f" Devolução aprovada pelo Atendente (Valor: R$ {devolucao.valor_total_devolvido:.2f})\n")
-            devolucao.status = "aprovada"
-            return True
-        else:
-            print(f" Atendente não pode aprovar (Valor: R$ {devolucao.valor_total_devolvido:.2f}). Encaminhando para o Supervisor...\n")
-            return self._passar_adiante(devolucao)
+        try:
+            if devolucao.valor_total_devolvido <= self.LIMITE_ATENDENTE:
+                print(f" Devolução aprovada pelo Atendente (Valor: R$ {devolucao.valor_total_devolvido:.2f})\n")
+                devolucao.status = "aprovada"
+                return True
+            else:
+                print(f" Atendente não pode aprovar (Valor: R$ {devolucao.valor_total_devolvido:.2f}). Encaminhando para o Supervisor...\n")
+                return self._passar_adiante(devolucao)
+        except Exception as e:
+            print(f"Erro ao processar devolução no atendente: {e}")
+            return False
 
 class Gerente(Processador_de_devolucao): # <-- Mostrar essa parte
 
     LIMITE_GERENTE = 10000.00
 
     def processar(self, devolucao: Devolucao) -> bool:
-        if devolucao.valor_total_devolvido <= self.LIMITE_GERENTE:
-            print(f" Devolução aprovada pelo Gerente (Valor: R$ {devolucao.valor_total_devolvido:.2f})\n")
-            devolucao.status = "aprovada"
-            return True
-        else:
-            print(f" Gerente não pode aprovar (Valor: R$ {devolucao.valor_total_devolvido:.2f}). Encaminhando para o Diretor...\n")
-            return self._passar_adiante(devolucao)
+        try:
+            if devolucao.valor_total_devolvido <= self.LIMITE_GERENTE:
+                print(f" Devolução aprovada pelo Gerente (Valor: R$ {devolucao.valor_total_devolvido:.2f})\n")
+                devolucao.status = "aprovada"
+                return True
+            else:
+                print(f" Gerente não pode aprovar (Valor: R$ {devolucao.valor_total_devolvido:.2f}). Encaminhando para o Diretor...\n")
+                return self._passar_adiante(devolucao)
+        except Exception as e:
+            print(f"Erro ao processar devolução no gerente: {e}")
+            return False
 
 class Diretor(Processador_de_devolucao): # <-- Mostrar essa parte
 
     def processar(self, devolucao: Devolucao) -> bool:
-        print(f" Devolução aprovada pelo Diretor (Valor: R$ {devolucao.valor_total_devolvido:.2f})\n")
-        devolucao.status = "aprovada"
-        return True
+        try:
+            print(f" Devolução aprovada pelo Diretor (Valor: R$ {devolucao.valor_total_devolvido:.2f})\n")
+            devolucao.status = "aprovada"
+            return True
+        except Exception as e:
+            print(f"Erro ao processar devolução no diretor: {e}")
+            return False
 
 class Sistema_de_aprovação_de_devolucao: # <-- Mostrar essa parte
     
@@ -445,23 +531,33 @@ class EstrategiaDesconto(ABC):
 
 class SemDesconto(EstrategiaDesconto):
     def calcular_desconto(self, venda: 'Venda') -> float:
-        return 0.0
-
-
+        try:
+            return 0.0
+        except Exception as e:
+            print(f"Erro ao calcular desconto: {e}")
+            return 0.0
 class DescontoPorValor(EstrategiaDesconto):
     """Aplica desconto se o valor total da venda for alto"""
     def calcular_desconto(self, venda: 'Venda') -> float:
-        if venda.valor_total > 1000:
-            return venda.valor_total * 0.1  # 10%
-        return 0.0
+        try:
+            if venda.valor_total > 1000:
+                return venda.valor_total * 0.1  # 10%
+            return 0.0
+        except Exception as e:
+            print(f"Erro ao calcular desconto por valor: {e}")
+            return 0.0
 
 class DescontoPorQuantidade(EstrategiaDesconto):
     """Aplica desconto se a quantidade de itens for alta"""
     def calcular_desconto(self, venda: 'Venda') -> float:
-        total_itens = sum(item.quantidade for item in venda.itens)
-        if total_itens >= 10:
-            return venda.valor_total * 0.05  # 5%
-        return 0.0
+        try:
+            total_itens = sum(item.quantidade for item in venda.itens)
+            if total_itens >= 10:
+                return venda.valor_total * 0.05  # 5%
+            return 0.0
+        except Exception as e:
+            print(f"Erro ao calcular desconto por quantidade: {e}")
+            return 0.0
 
 class CalculadoraDescontos:
     """Contexto que usa a estratégia de desconto"""
@@ -506,22 +602,33 @@ class GeradorID:
 
     def proximo_id(self, tipo: str) -> int:
         """Retorna o próximo ID disponível para o tipo especificado"""
-        if tipo not in self._contadores:
-            raise ValueError(f"Tipo '{tipo}' não é válido. Tipos válidos: {list(self._contadores.keys())}")
-        self._contadores[tipo] += 1
-        return self._contadores[tipo]
+        try:
+            if tipo not in self._contadores:
+                raise ValueError(f"Tipo '{tipo}' não é válido. Tipos válidos: {list(self._contadores.keys())}")
+            self._contadores[tipo] += 1
+            return self._contadores[tipo]
+        except Exception as e:
+            print(f"Erro ao gerar próximo ID: {e}")
+            return -1
 
     def definir_id_inicial(self, tipo: str, valor: int):
         """Define o valor inicial do contador (útil para importar dados existentes)"""
-        if tipo not in self._contadores:
-            raise ValueError(f"Tipo '{tipo}' não é válido")
-        self._contadores[tipo] = valor
+        try:
+            if tipo not in self._contadores:
+                raise ValueError(f"Tipo '{tipo}' não é válido")
+            self._contadores[tipo] = valor
+        except Exception as e:
+            print(f"Erro ao definir ID inicial: {e}")
 
     def obter_contador_atual(self, tipo: str) -> int:
         """Retorna o valor atual do contador sem incrementar"""
-        if tipo not in self._contadores:
-            raise ValueError(f"Tipo '{tipo}' não é válido")
-        return self._contadores[tipo]
+        try:
+            if tipo not in self._contadores:
+                raise ValueError(f"Tipo '{tipo}' não é válido")
+            return self._contadores[tipo]
+        except Exception as e:
+            print(f"Erro ao obter contador atual: {e}")
+            return -1
 
 
 # =====================
@@ -552,15 +659,18 @@ class ProdutoFactory(ABC):
 
     def _validar_dados_comuns(self, preco_compra: float, preco_venda: float, ponto_ressuprimento: int):
         """Valida dados comuns a todos os produtos"""
-        if preco_compra < 0:
-            raise ValueError("Preço de compra não pode ser negativo")
-        if preco_venda < 0:
-            raise ValueError("Preço de venda não pode ser negativo")
-        if preco_venda < preco_compra:
-            raise ValueError(f"Preço de venda (R$ {preco_venda:.2f}) não pode ser menor "
+        try:
+            if preco_compra < 0:
+                raise ValueError("Preço de compra não pode ser negativo")
+            if preco_venda < 0:
+                raise ValueError("Preço de venda não pode ser negativo")
+            if preco_venda < preco_compra:
+                raise ValueError(f"Preço de venda (R$ {preco_venda:.2f}) não pode ser menor "
                            f"que preço de compra (R$ {preco_compra:.2f})")
-        if ponto_ressuprimento < 0:
-            raise ValueError("Ponto de ressuprimento não pode ser negativo")
+            if ponto_ressuprimento < 0:
+                raise ValueError("Ponto de ressuprimento não pode ser negativo")
+        except Exception as e:
+            raise e
 
 
 class ProdutoIndividualFactory(ProdutoFactory):
@@ -620,14 +730,17 @@ class ProdutoKitFactory(ProdutoFactory):
         """Cria um kit de produtos com validações e cálculo automático de preço de compra"""
         
         # Validações específicas de kit
-        if not componentes:
-            raise ValueError("Kit deve ter pelo menos um componente")
+        try:
+            if not componentes:
+                raise ValueError("Kit deve ter pelo menos um componente")
         
-        if preco_venda < 0:
-            raise ValueError("Preço de venda não pode ser negativo")
+            if preco_venda < 0:
+                raise ValueError("Preço de venda não pode ser negativo")
         
-        if ponto_ressuprimento < 0:
-            raise ValueError("Ponto de ressuprimento não pode ser negativo")
+            if ponto_ressuprimento < 0:
+                raise ValueError("Ponto de ressuprimento não pode ser negativo")
+        except Exception as e:
+            raise e
         
         # Gera ID único
         gerador = GeradorID()
@@ -680,54 +793,68 @@ class VendaBuilder:
 
     def com_id(self, id_: int) -> 'VendaBuilder':
         """Define o ID da venda"""
-        if id_ <= 0:
-            raise ValueError("ID deve ser maior que zero")
-        self._id = id_
-        return self
+        try:
+            if id_ <= 0:
+                raise ValueError("ID deve ser maior que zero")
+            self._id = id_
+            return self
+        except Exception as e:
+            raise e
 
     def com_id_automatico(self) -> 'VendaBuilder':
         """Gera automaticamente um ID único"""
-        gerador = GeradorID()
-        self._id = gerador.proximo_id('venda')
-        return self
+        try:
+            gerador = GeradorID()
+            self._id = gerador.proximo_id('venda')
+            return self
+        except Exception as e:
+            raise e
 
     def com_cliente(self, cliente: str) -> 'VendaBuilder':
         """Define o cliente da venda"""
-        if not cliente or not cliente.strip():
-            raise ValueError("Nome do cliente não pode ser vazio")
-        self._cliente = cliente.strip()
-        return self
+        try:
+            if not cliente or not cliente.strip():
+                raise ValueError("Nome do cliente não pode ser vazio")
+            self._cliente = cliente.strip()
+            return self
+        except Exception as e:
+            raise e
 
     def com_data(self, data: datetime) -> 'VendaBuilder':
         """Define a data da venda"""
-        self._data = data
-        return self
-
+        try:
+            self._data = data
+            return self
+        except Exception as e:
+            raise e
     def adicionar_item(self, produto: Produto, quantidade: int, 
                        preco_unitario: Optional[float] = None) -> 'VendaBuilder':
         """
         Adiciona um item à venda.
         Se preco_unitario não for fornecido, usa o preço de venda do produto.
         """
-        if quantidade <= 0:
-            raise ValueError("Quantidade deve ser maior que zero")
+        try:
+            if quantidade <= 0:
+                raise ValueError("Quantidade deve ser maior que zero")
         
-        # Verifica estoque disponível
-        estoque_disponivel = produto.get_estoque_total()
-        if estoque_disponivel < quantidade:
-            raise ValueError(
-                f"Estoque insuficiente para '{produto.nome}'. "
-                f"Disponível: {estoque_disponivel}, Solicitado: {quantidade}"
-            )
+            # Verifica estoque disponível
+            estoque_disponivel = produto.get_estoque_total()
+            if estoque_disponivel < quantidade:
+                raise ValueError(
+                    f"Estoque insuficiente para '{produto.nome}'. "
+                    f"Disponível: {estoque_disponivel}, Solicitado: {quantidade}"
+                )
         
-        preco = preco_unitario if preco_unitario is not None else produto.preco_venda
+            preco = preco_unitario if preco_unitario is not None else produto.preco_venda
         
-        if preco <= 0:
-            raise ValueError("Preço unitário deve ser maior que zero")
+            if preco <= 0:
+                raise ValueError("Preço unitário deve ser maior que zero")
         
-        item = ItemVenda(produto, quantidade, preco)
-        self._itens.append(item)
-        return self
+            item = ItemVenda(produto, quantidade, preco)
+            self._itens.append(item)
+            return self
+        except Exception as e:
+            raise e
 
     def limpar_itens(self) -> 'VendaBuilder':
         """Remove todos os itens da venda"""
