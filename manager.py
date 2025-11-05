@@ -13,12 +13,35 @@ from models import (Fornecedor, Localizacao, Produto, HistoricoMovimento,
                     Devolucao, ItemDevolucao, Transacao, ComponenteKit)
 from database import DatabaseManager
 
+class GerenciadorEstoqueError(Exception):
+    """Exceção base para erros do gerenciador de estoque"""
+    pass
+
+class ProdutoNaoEncontradoError(GerenciadorEstoqueError):
+    """Produto não foi encontrado"""
+    pass
+
+class FornecedorNaoEncontradoError(GerenciadorEstoqueError):
+    """Fornecedor não foi encontrado"""
+    pass
+
+class LocalizacaoNaoEncontradaError(GerenciadorEstoqueError):
+    """Localização não foi encontrada"""
+    pass
+
+class EstoqueInsuficienteError(GerenciadorEstoqueError):
+    """Estoque insuficiente para a operação"""
+    pass
 
 #  classe principal de lógica de negócios
 
 class GerenciadorEstoque:
     """cheguemos na classe principal agora"""
     def __init__(self, db_manager: DatabaseManager):
+
+        if not isinstance(db_manager, DatabaseManager):  ## <--- Conferir se é uma instância válida
+            raise ValueError("Um DatabaseManager válido deve ser fornecido.")
+        
         self.db = db_manager
         # dicionários para armazenar os objetos em memória para acesso rápido
         self.produtos: dict[int, Produto] = {}
@@ -35,230 +58,288 @@ class GerenciadorEstoque:
         rows = self.db.execute_query(query, fetch='all')
         return [row[0] for row in rows] if rows else []
 
+# =============================================
+# TRATAMENTO DE EXCEÇÕES 
+# =============================================
+
     def carregar_dados_do_banco(self):
         """Carrega todos os dados do banco de dados para a memória (dicionários)."""
         print("Carregando dados do banco...")
         # Limpa os dicionários em memória antes de recarregar
-        self.produtos.clear()
-        self.fornecedores.clear()
-        self.localizacoes.clear()
-        self.historico.clear()
-        self.ordens_compra.clear()
-        self.vendas.clear()
-        self.devolucoes.clear()
-
-        # carrega fornecedores
-        fornecedores_data = self.db.execute_query("SELECT * FROM fornecedores", fetch='all')
-        if fornecedores_data:
-            for row in fornecedores_data:
-                self.fornecedores[row[0]] = Fornecedor(*row)
-
-        # carrega localizações
-        localizacoes_data = self.db.execute_query("SELECT * FROM localizacoes", fetch='all')
-        if localizacoes_data:
-            for row in localizacoes_data:
-                self.localizacoes[row[0]] = Localizacao(*row)
-
-        # carrega produtos e associa o fornecedor correspondente
-        produtos_data = self.db.execute_query("SELECT * FROM produtos", fetch='all')
-        if produtos_data:
-            for row in produtos_data:
-                prod_id, nome, desc, cat, cod, p_compra, p_venda, p_ress, forn_id, tipo_prod = row
-                fornecedor_obj = self.fornecedores.get(forn_id)
-                if fornecedor_obj:
-                    self.produtos[prod_id] = Produto(
-                        id=prod_id, nome=nome, descricao=desc, categoria=cat, 
-                        fornecedor=fornecedor_obj, codigo_barras=cod, 
-                        preco_compra=p_compra, preco_venda=p_venda, 
-                        ponto_ressuprimento=p_ress, tipoProduto=tipo_prod
-                    )
-
-        # carrega o estoque de cada produto em cada localização
-        query_estoque = "SELECT p.id, l.nome, e.quantidade FROM estoque e JOIN produtos p ON e.produto_id = p.id JOIN localizacoes l ON e.localizacao_id = l.id"
-        estoque_data = self.db.execute_query(query_estoque, fetch='all')
-        if estoque_data:
-            for prod_id, local_nome, qtd in estoque_data:
-                if prod_id in self.produtos:
-                    self.produtos[prod_id].estoque_por_local[local_nome] = qtd
+        try: 
+            self.produtos.clear()
+            self.fornecedores.clear()
+            self.localizacoes.clear()
+            self.historico.clear()
+            self.ordens_compra.clear()
+            self.vendas.clear()
+            self.devolucoes.clear()
         
-        # Carrega os componentes dos kits
-        componentes_data = self.db.execute_query("SELECT kit_produto_id, componente_produto_id, quantidade FROM componentes_kit", fetch='all')
-        if componentes_data:
-            for kit_id, comp_id, qtd in componentes_data:
-                if (kit := self.produtos.get(kit_id)) and (componente_prod := self.produtos.get(comp_id)):
-                    kit.componentes.append(ComponenteKit(produto=componente_prod, quantidade=qtd))
-            # Recalcula o preço de compra dos kits com base nos componentes carregados
-            for produto in self.produtos.values():
-                if produto.tipoProduto == 'kit':
-                    produto.recalcular_preco_compra()
+        
+            # carrega fornecedores
+            try:
+                fornecedores_data = self.db.execute_query("SELECT * FROM fornecedores", fetch='all')
+                if fornecedores_data:
+                    for row in fornecedores_data:
+                        self.fornecedores[row[0]] = Fornecedor(*row)
+            except Exception as e:
+                raise GerenciadorEstoqueError("Erro ao carregar fornecedores.") from e
+            # carrega localizações
+            try :
+                localizacoes_data = self.db.execute_query("SELECT * FROM localizacoes", fetch='all')
+                if localizacoes_data:
+                    for row in localizacoes_data:
+                        self.localizacoes[row[0]] = Localizacao(*row)
+            except Exception as e:
+                raise GerenciadorEstoqueError("Erro ao carregar localizações.") from e
+
+            # carrega produtos e associa o fornecedor correspondente
+            try:
+                produtos_data = self.db.execute_query("SELECT * FROM produtos", fetch='all')
+                if produtos_data:
+                    for row in produtos_data:
+                        prod_id, nome, desc, cat, cod, p_compra, p_venda, p_ress, forn_id, tipo_prod = row
+                        fornecedor_obj = self.fornecedores.get(forn_id)
+                        if fornecedor_obj:
+                            self.produtos[prod_id] = Produto(
+                                id=prod_id, nome=nome, descricao=desc, categoria=cat, 
+                                fornecedor=fornecedor_obj, codigo_barras=cod, 
+                                preco_compra=p_compra, preco_venda=p_venda, 
+                                ponto_ressuprimento=p_ress, tipoProduto=tipo_prod
+                            )
+            except Exception as e:
+                raise GerenciadorEstoqueError("Erro ao carregar produtos: {e}") from e   
+
+            # carrega o estoque de cada produto em cada localização
+            try:
+                query_estoque = "SELECT p.id, l.nome, e.quantidade FROM estoque e JOIN produtos p ON e.produto_id = p.id JOIN localizacoes l ON e.localizacao_id = l.id"
+                estoque_data = self.db.execute_query(query_estoque, fetch='all')
+                if estoque_data:
+                    for prod_id, local_nome, qtd in estoque_data:
+                        if prod_id in self.produtos:
+                            self.produtos[prod_id].estoque_por_local[local_nome] = qtd
+            except Exception as e:
+                raise GerenciadorEstoqueError("Erro ao carregar estoque.") from e
+            
+            # Carrega os componentes dos kits
+            try:
+                componentes_data = self.db.execute_query("SELECT kit_produto_id, componente_produto_id, quantidade FROM componentes_kit", fetch='all')
+                if componentes_data:
+                    for kit_id, comp_id, qtd in componentes_data:
+                        if (kit := self.produtos.get(kit_id)) and (componente_prod := self.produtos.get(comp_id)):
+                            kit.componentes.append(ComponenteKit(produto=componente_prod, quantidade=qtd))
+                    # Recalcula o preço de compra dos kits com base nos componentes carregados
+                    for produto in self.produtos.values():
+                        if produto.tipoProduto == 'kit':
+                            produto.recalcular_preco_compra()
+            except Exception as e:
+                raise GerenciadorEstoqueError("Erro ao carregar componentes de kits.") from e
 
 
-        # carrega o histórico de movimentações
-        query_hist = "SELECT produto_id, localizacao_id, tipo, quantidade, data FROM historico_movimentos"
-        hist_data = self.db.execute_query(query_hist, fetch='all')
-        if hist_data:
-            for p_id, l_id, tipo, qtd, data_str in hist_data:
-                if (produto := self.produtos.get(p_id)) and (localizacao := self.localizacoes.get(l_id)):
-                    self.historico.append(HistoricoMovimento(produto, tipo, qtd, localizacao, datetime.fromisoformat(data_str)))
+            # carrega o histórico de movimentações
+            try :
+                query_hist = "SELECT produto_id, localizacao_id, tipo, quantidade, data FROM historico_movimentos"
+                hist_data = self.db.execute_query(query_hist, fetch='all')
+                if hist_data:
+                    for p_id, l_id, tipo, qtd, data_str in hist_data:
+                        if (produto := self.produtos.get(p_id)) and (localizacao := self.localizacoes.get(l_id)):
+                            self.historico.append(HistoricoMovimento(produto, tipo, qtd, localizacao, datetime.fromisoformat(data_str)))
+            except Exception as e:
+                raise GerenciadorEstoqueError("Erro ao carregar histórico de movimentações.") from e
 
-        # carrega as Ordens de Compra (cabeçalho)
-        ocs_data = self.db.execute_query("SELECT * FROM ordens_compra", fetch='all')
-        if ocs_data:
-            for row in ocs_data:
-                oc_id, forn_id, status, data_str = row
-                if fornecedor := self.fornecedores.get(forn_id):
-                    self.ordens_compra[oc_id] = OrdemCompra(oc_id, fornecedor, [], status, datetime.fromisoformat(data_str))
+            # carrega as Ordens de Compra (cabeçalho)
 
-        # carrega os itens de cada Ordem de Compra
-        query_itens_oc = "SELECT ordem_id, produto_id, quantidade, preco_unitario FROM itens_ordem_compra"
-        itens_oc_data = self.db.execute_query(query_itens_oc, fetch='all')
-        if itens_oc_data:
-            for oc_id, p_id, qtd, preco in itens_oc_data:
-                if (oc := self.ordens_compra.get(oc_id)) and (produto := self.produtos.get(p_id)):
-                    item = ItemOrdemCompra(produto, qtd, preco)
-                    oc.itens.append(item)
+            try :
+                ocs_data = self.db.execute_query("SELECT * FROM ordens_compra", fetch='all')
+                if ocs_data:
+                    for row in ocs_data:
+                        oc_id, forn_id, status, data_str = row
+                        if fornecedor := self.fornecedores.get(forn_id):
+                            self.ordens_compra[oc_id] = OrdemCompra(oc_id, fornecedor, [], status, datetime.fromisoformat(data_str))
+            
+                # carrega os itens de cada Ordem de Compra
+                query_itens_oc = "SELECT ordem_id, produto_id, quantidade, preco_unitario FROM itens_ordem_compra"
+                itens_oc_data = self.db.execute_query(query_itens_oc, fetch='all')
+                if itens_oc_data:
+                    for oc_id, p_id, qtd, preco in itens_oc_data:
+                        if (oc := self.ordens_compra.get(oc_id)) and (produto := self.produtos.get(p_id)):
+                            item = ItemOrdemCompra(produto, qtd, preco)
+                            oc.itens.append(item)
+            except Exception as e:
+                raise GerenciadorEstoqueError("Erro ao carregar ordens de compra.") from e
 
-        # carrega o histórico de Vendas (cabeçalho)
-        vendas_data = self.db.execute_query("SELECT id, cliente_nome, data FROM vendas", fetch='all')
-        if vendas_data:
-            for row in vendas_data:
-                venda_id, cliente, data_str = row
-                self.vendas[venda_id] = Venda(venda_id, cliente, [], datetime.fromisoformat(data_str))
+            try:
+            # carrega o histórico de Vendas (cabeçalho)
+                vendas_data = self.db.execute_query("SELECT id, cliente_nome, data FROM vendas", fetch='all')
+                if vendas_data:
+                    for row in vendas_data:
+                        venda_id, cliente, data_str = row
+                        self.vendas[venda_id] = Venda(venda_id, cliente, [], datetime.fromisoformat(data_str))
 
-        # carrega os itens de cada venda
-        query_itens_venda = "SELECT venda_id, produto_id, quantidade, preco_venda_unitario FROM itens_venda"
-        itens_venda_data = self.db.execute_query(query_itens_venda, fetch='all')
-        if itens_venda_data:
-            for v_id, p_id, qtd, preco in itens_venda_data:
-                if (venda := self.vendas.get(v_id)) and (produto := self.produtos.get(p_id)):
-                    item = ItemVenda(produto, qtd, preco)
-                    venda.itens.append(item)
+                # carrega os itens de cada venda
+                query_itens_venda = "SELECT venda_id, produto_id, quantidade, preco_venda_unitario FROM itens_venda"
+                itens_venda_data = self.db.execute_query(query_itens_venda, fetch='all')
+                if itens_venda_data:
+                    for v_id, p_id, qtd, preco in itens_venda_data:
+                        if (venda := self.vendas.get(v_id)) and (produto := self.produtos.get(p_id)):
+                            item = ItemVenda(produto, qtd, preco)
+                            venda.itens.append(item)
+            except Exception as e:
+                raise GerenciadorEstoqueError("Erro ao carregar vendas.") from e
+            try:
+                # Carrega as devoluções (cabeçalho)
+                devolucoes_data = self.db.execute_query("SELECT id, venda_original_id, cliente_nome, status, data, observacoes FROM devolucoes", fetch='all')
+                if devolucoes_data:
+                    for row in devolucoes_data:
+                        dev_id, venda_id, cliente, status, data_str, obs = row
+                        if venda_original := self.vendas.get(venda_id):
+                            self.devolucoes[dev_id] = Devolucao(
+                                id=dev_id, venda_original=venda_original, cliente_nome=cliente, itens=[],
+                                status=status, data=datetime.fromisoformat(data_str), observacoes=obs
+                            )
 
-        # Carrega as devoluções (cabeçalho)
-        devolucoes_data = self.db.execute_query("SELECT id, venda_original_id, cliente_nome, status, data, observacoes FROM devolucoes", fetch='all')
-        if devolucoes_data:
-            for row in devolucoes_data:
-                dev_id, venda_id, cliente, status, data_str, obs = row
-                if venda_original := self.vendas.get(venda_id):
-                    self.devolucoes[dev_id] = Devolucao(
-                        id=dev_id, venda_original=venda_original, cliente_nome=cliente, itens=[],
-                        status=status, data=datetime.fromisoformat(data_str), observacoes=obs
-                    )
+                # Carrega os itens de cada devolução
+                itens_dev_data = self.db.execute_query("SELECT devolucao_id, produto_id, quantidade, motivo_devolucao, condicao_produto FROM itens_devolucao", fetch='all')
+                if itens_dev_data:
+                    for dev_id, p_id, qtd, motivo, condicao in itens_dev_data:
+                        if (devolucao := self.devolucoes.get(dev_id)) and (produto := self.produtos.get(p_id)):
+                            devolucao.itens.append(ItemDevolucao(produto, qtd, motivo, condicao))
 
-        # Carrega os itens de cada devolução
-        itens_dev_data = self.db.execute_query("SELECT devolucao_id, produto_id, quantidade, motivo_devolucao, condicao_produto FROM itens_devolucao", fetch='all')
-        if itens_dev_data:
-            for dev_id, p_id, qtd, motivo, condicao in itens_dev_data:
-                if (devolucao := self.devolucoes.get(dev_id)) and (produto := self.produtos.get(p_id)):
-                    devolucao.itens.append(ItemDevolucao(produto, qtd, motivo, condicao))
+                # Carrega as transações de cada devolução
+                transacoes_data = self.db.execute_query("SELECT id, devolucao_id, tipo, valor, data FROM transacoes", fetch='all')
+                if transacoes_data:
+                    for t_id, dev_id, tipo, valor, data_str in transacoes_data:
+                        if devolucao := self.devolucoes.get(dev_id):
+                            devolucao.transacao = Transacao(t_id, dev_id, tipo, valor, datetime.fromisoformat(data_str))
+            except Exception as e:
+                raise GerenciadorEstoqueError("Erro ao carregar devoluções.") from e
 
-        # Carrega as transações de cada devolução
-        transacoes_data = self.db.execute_query("SELECT id, devolucao_id, tipo, valor, data FROM transacoes", fetch='all')
-        if transacoes_data:
-            for t_id, dev_id, tipo, valor, data_str in transacoes_data:
-                if devolucao := self.devolucoes.get(dev_id):
-                    devolucao.transacao = Transacao(t_id, dev_id, tipo, valor, datetime.fromisoformat(data_str))
-
-        print("Dados carregados com sucesso.")
+            print("Dados carregados com sucesso.")
+        except sqlite3.Error as e:
+            print(f"Erro ao acessar o banco de dados: {e}")
+            raise RuntimeError("Falha ao carregar dados do banco de dados.") from e
+        except Exception as e:
+            print(f"Erro inesperado: {e}")
+            raise RuntimeError("Erro inesperado ao carregar dados do banco de dados.") from e
 
     def registrar_venda(self, itens_info: list[dict], nome_cliente: str, localizacao_id: int) -> tuple[Venda, list[Produto]]:
         """Registra uma nova venda, atualiza o estoque e retorna a venda e produtos que atingiram o ponto de ressuprimento."""
-        if not itens_info:
-            raise ValueError("A venda deve ter pelo menos um item.")
-        if not nome_cliente:
-            raise ValueError("O nome do cliente é obrigatório.")
-        if not (localizacao := self.localizacoes.get(localizacao_id)):
-            raise ValueError("Localização de saída do estoque inválida.")
+        try :
+            if not itens_info:
+                raise ValueError("A venda deve ter pelo menos um item.")
+            if not nome_cliente:
+                raise ValueError("O nome do cliente é obrigatório.")
+            if not (localizacao := self.localizacoes.get(localizacao_id)):
+                raise ValueError("Localização de saída do estoque inválida.")
 
-        # Validação de estoque antes de qualquer alteração no banco
-        for item_info in itens_info:
-            produto = self.produtos[item_info['produto_id']]
-            quantidade_vendida = item_info['quantidade']
-            
-            if produto.tipoProduto == 'kit':
-                estoque_montavel = produto.get_estoque_total()
-                if estoque_montavel < quantidade_vendida:
-                    raise ValueError(f"Estoque de componentes insuficiente para montar {quantidade_vendida} unidade(s) do kit '{produto.nome}'. Apenas {estoque_montavel} possível(is).")
-            else: # Produto individual
-                estoque_local = produto.estoque_por_local.get(localizacao.nome, 0)
-                if estoque_local < quantidade_vendida:
-                    raise ValueError(f"Estoque insuficiente para '{produto.nome}' na localização '{localizacao.nome}'.")
+            # Validação de estoque antes de qualquer alteração no banco
+            for item_info in itens_info:
+                produto = self.produtos[item_info['produto_id']]
+                quantidade_vendida = item_info['quantidade']
 
-        agora = datetime.now()
-        query_venda = "INSERT INTO vendas (cliente_nome, data) VALUES (?, ?)"
-        nova_venda_id = self.db.execute_query(query_venda, (nome_cliente, agora.isoformat()))
+                if not produto_id or produto_id not in self.produtos: # <-- Aqui
+                    raise ProdutoNaoEncontradoError(f"Produto com ID {produto_id} não encontrado.")
 
-        produtos_para_alertar = []
-        itens_venda_obj = []
+                if quantidade_vendida <= 0:
+                    raise ValueError("A quantidade vendida deve ser maior que zero.")
+                
+                if produto.tipoProduto == 'kit':
+                    estoque_montavel = produto.get_estoque_total()
+                    if estoque_montavel < quantidade_vendida:
+                        raise ValueError(f"Estoque de componentes insuficiente para montar {quantidade_vendida} unidade(s) do kit '{produto.nome}'. Apenas {estoque_montavel} possível(is).")
+                else: # Produto individual
+                    estoque_local = produto.estoque_por_local.get(localizacao.nome, 0)
+                    if estoque_local < quantidade_vendida:
+                        raise ValueError(f"Estoque insuficiente para '{produto.nome}' na localização '{localizacao.nome}'.")
+
+            agora = datetime.now()
+            query_venda = "INSERT INTO vendas (cliente_nome, data) VALUES (?, ?)"
+            nova_venda_id = self.db.execute_query(query_venda, (nome_cliente, agora.isoformat()))
+
+            produtos_para_alertar = []
+            itens_venda_obj = []
         
-        for item_info in itens_info:
-            produto_id = item_info['produto_id']
-            quantidade = item_info['quantidade']
-            produto_vendido = self.produtos[produto_id]
-            preco_unitario_venda = produto_vendido.preco_venda
+            for item_info in itens_info:
+                produto_id = item_info['produto_id']
+                quantidade = item_info['quantidade']
+                produto_vendido = self.produtos[produto_id]
+                preco_unitario_venda = produto_vendido.preco_venda
 
-            query_item = "INSERT INTO itens_venda (venda_id, produto_id, quantidade, preco_venda_unitario) VALUES (?, ?, ?, ?)"
-            self.db.execute_query(query_item, (nova_venda_id, produto_id, quantidade, preco_unitario_venda))
+                query_item = "INSERT INTO itens_venda (venda_id, produto_id, quantidade, preco_venda_unitario) VALUES (?, ?, ?, ?)"
+                self.db.execute_query(query_item, (nova_venda_id, produto_id, quantidade, preco_unitario_venda))
             
-            # Se for um kit, debita o estoque dos componentes. Se for individual, debita do produto.
-            if produto_vendido.tipoProduto == 'kit':
-                for comp in produto_vendido.componentes:
-                    qtd_a_debitar = comp.quantidade * quantidade
+                # Se for um kit, debita o estoque dos componentes. Se for individual, debita do produto.
+                if produto_vendido.tipoProduto == 'kit':
+                    for comp in produto_vendido.componentes:
+                        qtd_a_debitar = comp.quantidade * quantidade
+                        _, produto_alertado = self.movimentar_estoque(
+                            produto_id=comp.produto.id,
+                            localizacao_id=localizacao_id,
+                            quantidade=-qtd_a_debitar,
+                            tipo_movimento=f"Componente Venda Kit #{nova_venda_id}"
+                        )
+                        if produto_alertado and produto_alertado not in produtos_para_alertar:
+                            produtos_para_alertar.append(produto_alertado)
+                else: # Produto Individual
                     _, produto_alertado = self.movimentar_estoque(
-                        produto_id=comp.produto.id,
+                        produto_id=produto_id,
                         localizacao_id=localizacao_id,
-                        quantidade=-qtd_a_debitar,
-                        tipo_movimento=f"Componente Venda Kit #{nova_venda_id}"
+                        quantidade=-quantidade,
+                        tipo_movimento=f"Venda #{nova_venda_id}"
                     )
                     if produto_alertado and produto_alertado not in produtos_para_alertar:
                         produtos_para_alertar.append(produto_alertado)
-            else: # Produto Individual
-                _, produto_alertado = self.movimentar_estoque(
-                    produto_id=produto_id,
-                    localizacao_id=localizacao_id,
-                    quantidade=-quantidade,
-                    tipo_movimento=f"Venda #{nova_venda_id}"
-                )
-                if produto_alertado and produto_alertado not in produtos_para_alertar:
-                    produtos_para_alertar.append(produto_alertado)
 
-            item_obj = ItemVenda(produto_vendido, quantidade, preco_unitario_venda)
-            itens_venda_obj.append(item_obj)
+                item_obj = ItemVenda(produto_vendido, quantidade, preco_unitario_venda)
+                itens_venda_obj.append(item_obj)
 
-        # Atualiza o objeto de venda em memória
-        nova_venda = Venda(nova_venda_id, nome_cliente, itens_venda_obj, agora)
-        self.vendas[nova_venda_id] = nova_venda
-        return nova_venda, produtos_para_alertar
+            # Atualiza o objeto de venda em memória
+            nova_venda = Venda(nova_venda_id, nome_cliente, itens_venda_obj, agora)
+            self.vendas[nova_venda_id] = nova_venda
+            return nova_venda, produtos_para_alertar
+        except ValueError as ve:
+            print(f"Erro ao registrar venda: {ve}")
+            raise
 
     def adicionar_fornecedor(self, **kwargs) -> Fornecedor:
         """Adiciona um novo fornecedor ao banco de dados e à memória."""
-        query = "INSERT INTO fornecedores (nome, empresa, telefone, email, morada) VALUES (?, ?, ?, ?, ?)"
-        params = (
-            kwargs['nome'], kwargs.get('empresa', ''), kwargs.get('telefone', ''),
-            kwargs.get('email', ''), kwargs.get('morada', '')
-        )
-        novo_id = self.db.execute_query(query, params)
-        novo_fornecedor = Fornecedor(id=novo_id, **kwargs)
-        self.fornecedores[novo_id] = novo_fornecedor
-        return novo_fornecedor
+        try :
+            query = "INSERT INTO fornecedores (nome, empresa, telefone, email, morada) VALUES (?, ?, ?, ?, ?)"
+            params = (
+                kwargs['nome'], kwargs.get('empresa', ''), kwargs.get('telefone', ''),
+                kwargs.get('email', ''), kwargs.get('morada', '')
+            )
+            novo_id = self.db.execute_query(query, params)
+            novo_fornecedor = Fornecedor(id=novo_id, **kwargs)
+            self.fornecedores[novo_id] = novo_fornecedor
+            return novo_fornecedor
+        except Exception as e:
+            raise FornecedorNaoEncontradoError("Erro ao adicionar fornecedor.") from e
 
-    def atualizar_fornecedor(self, fornecedor_id: int, **kwargs) -> bool:
+    def atualizar_fornecedor(self, fornecedor_id: int, **kwargs) -> bool: # <-- Exceção
         """Atualiza os dados de um fornecedor existente no banco e na memória."""
-        if fornecedor_id not in self.fornecedores: return False
-        query = "UPDATE fornecedores SET nome=?, empresa=?, telefone=?, email=?, morada=? WHERE id=?"
-        params = (
-            kwargs['nome'], kwargs.get('empresa', ''), kwargs.get('telefone', ''),
-            kwargs.get('email', ''), kwargs.get('morada', ''), fornecedor_id
-        )
-        self.db.execute_query(query, params)
-        fornecedor = self.fornecedores[fornecedor_id]
-        fornecedor.nome, fornecedor.empresa = kwargs['nome'], kwargs.get('empresa', '')
-        fornecedor.telefone, fornecedor.email = kwargs.get('telefone', ''), kwargs.get('email', '')
-        fornecedor.morada = kwargs.get('morada', '')
-        return True
+        try:
+            if fornecedor_id not in self.fornecedores:
+                raise FornecedorNaoEncontradoError(f"Fornecedor com ID {fornecedor_id} não encontrado.")
+            if fornecedor_id not in self.fornecedores: return False
+            query = "UPDATE fornecedores SET nome=?, empresa=?, telefone=?, email=?, morada=? WHERE id=?"
+            params = (
+                kwargs['nome'], kwargs.get('empresa', ''), kwargs.get('telefone', ''),
+                kwargs.get('email', ''), kwargs.get('morada', ''), fornecedor_id
+            )
+            self.db.execute_query(query, params)
+            fornecedor = self.fornecedores[fornecedor_id]
+            fornecedor.nome, fornecedor.empresa = kwargs['nome'], kwargs.get('empresa', '')
+            fornecedor.telefone, fornecedor.email = kwargs.get('telefone', ''), kwargs.get('email', '')
+            fornecedor.morada = kwargs.get('morada', '')
+            return True
+        except Exception as e: 
+            raise FornecedorNaoEncontradoError("Erro ao atualizar fornecedor.") from e
 
     def remover_fornecedor(self, fornecedor_id: int) -> bool:
         """Remove um fornecedor e todos os produtos associados a ele."""
+        if fornecedor_id not in self.fornecedores:
+            raise FornecedorNaoEncontradoError(f"Fornecedor com ID {fornecedor_id} não encontrado.")
         if fornecedor_id in self.fornecedores:
             # A remoção em cascata (ON DELETE CASCADE) na tabela 'produtos' cuidará dos produtos no DB.
             self.db.execute_query("DELETE FROM fornecedores WHERE id=?", (fornecedor_id,))
@@ -285,23 +366,29 @@ class GerenciadorEstoque:
 
     def atualizar_localizacao(self, localizacao_id: int, **kwargs) -> bool:
         """Atualiza os dados de uma localização."""
-        if localizacao_id not in self.localizacoes: return False
 
-        local_antiga = self.localizacoes[localizacao_id]
-        nome_antigo, novo_nome = local_antiga.nome, kwargs['nome']
+        try:
+            if localizacao_id not in self.localizacoes:
+                raise LocalizacaoNaoEncontradaError(f"Localização com ID {localizacao_id} não encontrada.")
+            if localizacao_id not in self.localizacoes: return False
 
-        query = "UPDATE localizacoes SET nome=?, endereco=? WHERE id=?"
-        params = (novo_nome, kwargs.get('endereco', ''), localizacao_id)
-        self.db.execute_query(query, params)
+            local_antiga = self.localizacoes[localizacao_id]
+            nome_antigo, novo_nome = local_antiga.nome, kwargs['nome']
 
-        local_antiga.nome, local_antiga.endereco = novo_nome, kwargs.get('endereco', '')
+            query = "UPDATE localizacoes SET nome=?, endereco=? WHERE id=?"
+            params = (novo_nome, kwargs.get('endereco', ''), localizacao_id)
+            self.db.execute_query(query, params)
 
-        # Se o nome mudou, atualiza a chave nos dicionários de estoque em memória.
-        if nome_antigo != novo_nome:
-            for produto in self.produtos.values():
-                if nome_antigo in produto.estoque_por_local:
-                    produto.estoque_por_local[novo_nome] = produto.estoque_por_local.pop(nome_antigo)
-        return True
+            local_antiga.nome, local_antiga.endereco = novo_nome, kwargs.get('endereco', '')
+
+            # Se o nome mudou, atualiza a chave nos dicionários de estoque em memória.
+            if nome_antigo != novo_nome:
+                for produto in self.produtos.values():
+                    if nome_antigo in produto.estoque_por_local:
+                        produto.estoque_por_local[novo_nome] = produto.estoque_por_local.pop(nome_antigo)
+            return True
+        except Exception as e:
+            raise LocalizacaoNaoEncontradaError("Erro ao atualizar localização.") from e
 
     def remover_localizacao(self, localizacao_id: int) -> bool:
         """Remove uma localização, apenas se não houver estoque nela."""
@@ -318,136 +405,173 @@ class GerenciadorEstoque:
 
     def buscar_produto_por_codigo_barras(self, codigo_barras: str) -> Produto | None:
         """Busca um produto em memória pelo seu código de barras."""
-        for produto in self.produtos.values():
-            if produto.codigo_barras and produto.codigo_barras.strip() == codigo_barras.strip():
-                return produto
-        return None
+        try:
+
+            for produto in self.produtos.values():
+                if produto.codigo_barras and produto.codigo_barras.strip() == codigo_barras.strip():
+                    return produto
+            return None
+        except Exception as e:
+            print(f"Erro ao buscar produto por código de barras: {e}")
+            return None
 
     def adicionar_produto(self, fornecedor_id, **kwargs):
         """Adiciona um novo produto."""
-        if not (fornecedor := self.fornecedores.get(fornecedor_id)):
-            raise ValueError("Fornecedor não encontrado.")
+        try:
+            if not (fornecedor := self.fornecedores.get(fornecedor_id)):
+                raise FornecedorNaoEncontradoError("Fornecedor não encontrado.")
 
-        # CORRIGIDO: usa .get() para ter um valor padrão 'individual' caso 'tipoProduto' não seja passado
-        tipo_produto = kwargs.get('tipoProduto', 'individual')
+            # CORRIGIDO: usa .get() para ter um valor padrão 'individual' caso 'tipoProduto' não seja passado
+            tipo_produto = kwargs.get('tipoProduto', 'individual')
 
-        query = """INSERT INTO produtos (nome, descricao, categoria, codigo_barras, preco_compra, preco_venda, ponto_ressuprimento, fornecedor_id, tipo_produto)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"""
-        params = (
-            kwargs['nome'], kwargs.get('descricao', ''), kwargs.get('categoria', ''),
-            kwargs.get('codigo_barras', ''), kwargs['preco_compra'], kwargs['preco_venda'],
-            kwargs['ponto_ressuprimento'], fornecedor_id, tipo_produto
-        )
-        novo_id = self.db.execute_query(query, params)
+            query = """INSERT INTO produtos (nome, descricao, categoria, codigo_barras, preco_compra, preco_venda, ponto_ressuprimento, fornecedor_id, tipo_produto)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+            params = (
+                kwargs['nome'], kwargs.get('descricao', ''), kwargs.get('categoria', ''),
+                kwargs.get('codigo_barras', ''), kwargs['preco_compra'], kwargs['preco_venda'],
+                kwargs['ponto_ressuprimento'], fornecedor_id, tipo_produto
+            )
+            novo_id = self.db.execute_query(query, params)
         
-        # Garante que o kwargs tenha o tipo correto antes de criar o objeto
-        kwargs['tipoProduto'] = tipo_produto
+            # Garante que o kwargs tenha o tipo correto antes de criar o objeto
+            kwargs['tipoProduto'] = tipo_produto
         
-        novo_produto = Produto(id=novo_id, fornecedor=fornecedor, **kwargs)
-        self.produtos[novo_id] = novo_produto
-        return novo_produto
+            novo_produto = Produto(id=novo_id, fornecedor=fornecedor, **kwargs)
+            self.produtos[novo_id] = novo_produto
+            return novo_produto
+        except Exception as e:
+            raise GerenciadorEstoqueError("Erro ao adicionar produto.") from e
 
 
     def atualizar_produto(self, produto_id, **kwargs):
         """Atualiza os dados de um produto."""
-        if produto_id not in self.produtos: return False
+        try:
 
-        produto = self.produtos[produto_id]
+            if produto_id not in self.produtos:
+                raise ProdutoNaoEncontradoError(f"Produto com ID {produto_id} não encontrado.")
+            if produto_id not in self.produtos:  
+                return False
+
+            produto = self.produtos[produto_id]
         
-        query = """UPDATE produtos SET nome=?, descricao=?, categoria=?, codigo_barras=?,
-                                      preco_compra=?, preco_venda=?, ponto_ressuprimento=?, fornecedor_id=?
-                                      WHERE id=?"""
+            query = """UPDATE produtos SET nome=?, descricao=?, categoria=?, codigo_barras=?,
+                                        preco_compra=?, preco_venda=?, ponto_ressuprimento=?, fornecedor_id=?
+                                        WHERE id=?"""
 
-        fornecedor_id = int(kwargs.get('fornecedor_id'))
-        if not (fornecedor_obj := self.fornecedores.get(fornecedor_id)): return False
+            fornecedor_id = int(kwargs.get('fornecedor_id'))
+            if not (fornecedor_obj := self.fornecedores.get(fornecedor_id)): return False
 
-        params = (
-            kwargs['nome'], kwargs['descricao'], kwargs['categoria'], kwargs['codigo_barras'],
-            kwargs['preco_compra'], kwargs['preco_venda'], kwargs['ponto_ressuprimento'],
-            fornecedor_id, produto_id
-        )
-        self.db.execute_query(query, params)
+            params = (
+                kwargs['nome'], kwargs['descricao'], kwargs['categoria'], kwargs['codigo_barras'],
+                kwargs['preco_compra'], kwargs['preco_venda'], kwargs['ponto_ressuprimento'],
+                fornecedor_id, produto_id
+            )
+            self.db.execute_query(query, params)
 
-        # Atualiza o objeto em memória
-        kwargs['fornecedor'] = fornecedor_obj
-        del kwargs['fornecedor_id']
-        for key, value in kwargs.items():
-            if hasattr(produto, key):
-                setattr(produto, key, value)
+            # Atualiza o objeto em memória
+            kwargs['fornecedor'] = fornecedor_obj
+            del kwargs['fornecedor_id']
+            for key, value in kwargs.items():
+                if hasattr(produto, key):
+                    setattr(produto, key, value)
         
-        # Se for um kit, o preço de compra deve ser recalculado
-        if produto.tipoProduto == 'kit':
-            produto.recalcular_preco_compra()
+            # Se for um kit, o preço de compra deve ser recalculado
+            if produto.tipoProduto == 'kit':
+                produto.recalcular_preco_compra()
             
-        return True
+            return True
+        except Exception as e:
+            raise GerenciadorEstoqueError("Erro ao atualizar produto.") from e
 
     def remover_produto(self, produto_id):
         """Remove um produto."""
-        if produto_id in self.produtos:
-            # A remoção em cascata cuidará das tabelas 'estoque', 'historico', etc.
-            self.db.execute_query("DELETE FROM produtos WHERE id=?", (produto_id,))
-            del self.produtos[produto_id]
-            return True
-        return False
+        try:
+            if produto_id not in self.produtos:
+                raise ProdutoNaoEncontradoError(f"Produto com ID {produto_id} não encontrado.")
+            if produto_id in self.produtos:
+                # A remoção em cascata cuidará das tabelas 'estoque', 'historico', etc.
+                self.db.execute_query("DELETE FROM produtos WHERE id=?", (produto_id,))
+                del self.produtos[produto_id]
+                return True
+            return False
+        except Exception as e:
+            raise GerenciadorEstoqueError("Erro ao remover produto.") from e
     
     def verificar_se_produto_e_componente(self, produto_id: int) -> list[str]:
         """Verifica se um produto é componente de algum kit e retorna os nomes dos kits."""
-        kits_afetados = []
-        for kit in self.produtos.values():
-            if kit.tipoProduto == 'kit':
-                for componente in kit.componentes:
-                    if componente.produto.id == produto_id:
-                        kits_afetados.append(kit.nome)
-                        break
-        return kits_afetados
+        try:
+            if produto_id not in self.produtos:
+                raise ProdutoNaoEncontradoError(f"Produto com ID {produto_id} não encontrado.")
+            kits_afetados = []
+            for kit in self.produtos.values():
+                if kit.tipoProduto == 'kit':
+                    for componente in kit.componentes:
+                        if componente.produto.id == produto_id:
+                            kits_afetados.append(kit.nome)
+                            break
+            return kits_afetados
+        except Exception as e:
+            raise GerenciadorEstoqueError("Erro ao verificar componentes de kits.") from e
 
 
     def movimentar_estoque(self, produto_id, localizacao_id, quantidade, tipo_movimento):
         """Realiza uma movimentação de estoque (entrada/saída) e a registra no histórico."""
-        produto = self.produtos.get(produto_id)
-        localizacao = self.localizacoes.get(localizacao_id)
-        if not all([produto, localizacao]):
-            raise ValueError("Produto ou Localização inválido.")
+
+        try:
+            produto = self.produtos.get(produto_id)
+            localizacao = self.localizacoes.get(localizacao_id)
+            if not all([produto, localizacao]):
+                raise ValueError("Produto ou Localização inválido.")
         
-        if produto.tipoProduto == 'kit':
-            raise ValueError("Não é possível movimentar o estoque de um kit diretamente. A movimentação ocorre através dos seus componentes.")
+            if produto.tipoProduto == 'kit':
+                raise ValueError("Não é possível movimentar o estoque de um kit diretamente. A movimentação ocorre através dos seus componentes.")
 
-        estoque_anterior = produto.get_estoque_total()
-        estoque_local_anterior = produto.estoque_por_local.get(localizacao.nome, 0)
+            estoque_anterior = produto.get_estoque_total()
+            estoque_local_anterior = produto.estoque_por_local.get(localizacao.nome, 0)
 
-        # Valida se há estoque suficiente para uma saída
-        if quantidade < 0 and estoque_local_anterior < abs(quantidade):
-            raise ValueError(f"Estoque insuficiente de '{produto.nome}' em '{localizacao.nome}'.")
+            # Valida se há estoque suficiente para uma saída
+            if quantidade < 0 and estoque_local_anterior < abs(quantidade):
+                raise ValueError(f"Estoque insuficiente de '{produto.nome}' em '{localizacao.nome}'.")
 
-        novo_estoque_local = estoque_local_anterior + quantidade
-        query_estoque = """
-        INSERT INTO estoque (produto_id, localizacao_id, quantidade) VALUES (?, ?, ?)
-        ON CONFLICT(produto_id, localizacao_id) DO UPDATE SET quantidade = ?;
-        """
-        self.db.execute_query(query_estoque, (produto_id, localizacao_id, novo_estoque_local, novo_estoque_local))
+            novo_estoque_local = estoque_local_anterior + quantidade
+            query_estoque = """
+            INSERT INTO estoque (produto_id, localizacao_id, quantidade) VALUES (?, ?, ?)
+            ON CONFLICT(produto_id, localizacao_id) DO UPDATE SET quantidade = ?;
+            """
+            self.db.execute_query(query_estoque, (produto_id, localizacao_id, novo_estoque_local, novo_estoque_local))
 
-        # Registra a movimentação no histórico
-        agora = datetime.now()
-        query_hist = "INSERT INTO historico_movimentos (produto_id, localizacao_id, tipo, quantidade, data) VALUES (?, ?, ?, ?, ?)"
-        self.db.execute_query(query_hist, (produto_id, localizacao_id, tipo_movimento, quantidade, agora.isoformat()))
+            # Registra a movimentação no histórico
+            agora = datetime.now()
+            query_hist = "INSERT INTO historico_movimentos (produto_id, localizacao_id, tipo, quantidade, data) VALUES (?, ?, ?, ?, ?)"
+            self.db.execute_query(query_hist, (produto_id, localizacao_id, tipo_movimento, quantidade, agora.isoformat()))
 
-        # Atualiza os dados em memória
-        produto.estoque_por_local[localizacao.nome] = novo_estoque_local
-        self.historico.append(HistoricoMovimento(produto, tipo_movimento, quantidade, localizacao, agora))
+            # Atualiza os dados em memória
+            produto.estoque_por_local[localizacao.nome] = novo_estoque_local
+            self.historico.append(HistoricoMovimento(produto, tipo_movimento, quantidade, localizacao, agora))
 
-        # Verifica se o estoque total do produto caiu abaixo do ponto de ressuprimento.
-        produto_para_alertar = None
-        if estoque_anterior > produto.ponto_ressuprimento and produto.get_estoque_total() <= produto.ponto_ressuprimento:
-            produto_para_alertar = produto
+            # Verifica se o estoque total do produto caiu abaixo do ponto de ressuprimento.
+            produto_para_alertar = None
+            if estoque_anterior > produto.ponto_ressuprimento and produto.get_estoque_total() <= produto.ponto_ressuprimento:
+                produto_para_alertar = produto
 
-        return True, produto_para_alertar
+            return True, produto_para_alertar
+
+        except ValueError as e:
+            print(f"Erro de validação ao movimentar estoque: {e}")
+            raise
+        except sqlite3.Error as e:
+            print(f"Erro no banco de dados durante movimentação: {e}")
+            raise RuntimeError("Erro de banco de dados ao movimentar estoque.") from e
+        except Exception as e:
+            print(f"Erro inesperado em movimentar_estoque: {e}")
+            raise  
 
     def transferir_estoque(self, produto_id: int, origem_id: int, destino_id: int, quantidade: int):
         """Transfere uma quantidade de um produto entre duas localizações."""
         if origem_id == destino_id:
             raise ValueError("A localização de origem e destino não podem ser as mesmas.")
         if quantidade <= 0:
-            raise ValueError("A quantidade a transferir deve ser positiva.")
+            raise EstoqueInsuficienteError("A quantidade a transferir deve ser positiva.")
 
         origem, destino = self.localizacoes.get(origem_id), self.localizacoes.get(destino_id)
         if not all([origem, destino]):
